@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocxAIO-HFS</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="container">
+    <header class="hero">
+      <h1>DocxAIO-HFS</h1>
+      <p>上传一个 DOCX，勾选处理模式，服务会返回包含全部输出文件的 ZIP。</p>
+    </header>
+
+    <section class="card">
+      <form action="/process" method="post" enctype="multipart/form-data" id="process-form">
+        <div class="field">
+          <label for="file">DOCX 文件</label>
+          <input id="file" name="file" type="file" accept=".docx" required>
+        </div>
+
+        <fieldset>
+          <legend>Excel 表格处理</legend>
+          <label><input type="checkbox" name="word_table" checked> 转为 Word 表格（默认）</label>
+          <label><input type="checkbox" name="extract_excel"> 提取嵌入 Excel</label>
+          <label><input type="checkbox" name="image"> Excel 渲染为图片</label>
+          <label><input type="checkbox" name="keep_attachment"> 保留 Excel 附件入口</label>
+        </fieldset>
+
+        <fieldset>
+          <legend>文档优化</legend>
+          <label><input type="checkbox" name="remove_watermark"> 移除水印</label>
+          <label><input type="checkbox" name="a3"> A3 横向布局</label>
+        </fieldset>
+
+        <fieldset>
+          <legend>扩展功能</legend>
+          <label><input type="checkbox" name="table_extract"> 表格提取（TXT/XLSX/PDF+标记文档）</label>
+          <label><input type="checkbox" name="split_images"> 图片分离（附图PDF+标记文档）</label>
+          <label><input type="checkbox" name="split_remove_images"> 分离时删除标记文档中的原图</label>
+          <label><input type="checkbox" name="split_no_optimize"> 分离时关闭图片优化</label>
+          <div class="field inline">
+            <label for="split_jpeg_quality">分离 JPEG 质量 (1-100)</label>
+            <input id="split_jpeg_quality" name="split_jpeg_quality" type="number" min="1" max="100" value="85">
+          </div>
+        </fieldset>
+
+        <button class="submit-btn" type="submit">开始处理并下载 ZIP</button>
+      </form>
+    </section>
+
+    <section class="tips">
+      <h2>说明</h2>
+      <ul>
+        <li>支持单文件处理，输出将统一打包为 ZIP。</li>
+        <li>如果不勾选任何模式，后端会自动启用“转为 Word 表格”。</li>
+        <li>健康检查接口：<code>/health</code></li>
+      </ul>
+    </section>
+  </main>
+
+  <script>
+    const form = document.getElementById("process-form");
+    form.addEventListener("submit", () => {
+      const btn = form.querySelector("button[type='submit']");
+      btn.disabled = true;
+      btn.textContent = "处理中，请等待...";
+    });
+  </script>
+</body>
+</html>

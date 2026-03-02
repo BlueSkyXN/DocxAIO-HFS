@@ -1,0 +1,30 @@
+name: Sync to Hugging Face Space
+
+on:
+  push:
+    branches:
+      - main  # 或者你的主分支名称，例如 master
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4 # 建议使用最新版本
+        with:
+          fetch-depth: 0 # 获取所有历史记录，以便正确推送
+
+      - name: Set up Git
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }} # 引用你之前创建的 Secret
+        run: |
+          # 将 <your-hf-username> 和 <your-space-name> 替换为你的实际信息
+          git remote add space https://user:${HF_TOKEN}@huggingface.co/spaces/BlueSkyXN/DocxAIO-HFS
+          # 强制推送到 Space 的 main 分支，覆盖原有内容
+          # 如果你的 Space 主分支不是 main，请相应修改
+          git push --force space main
