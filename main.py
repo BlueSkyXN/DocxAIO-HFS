@@ -14,16 +14,20 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import fcntl
 import io
 import logging
 import os
+import shlex
 import shutil
+import subprocess
+import sys
 import tempfile
 import uuid
 import zipfile
 from datetime import datetime
+from dataclasses import dataclass
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Optional
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -45,10 +49,108 @@ APP_TITLE = "DocxAIO-HFS"
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "120"))
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "1200"))
 MAX_CONCURRENT_TASKS = int(os.getenv("MAX_CONCURRENT_TASKS", "2"))
+
+
+def _parse_workers_value(raw: str, source: str) -> int:
+    try:
+        workers = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{source} must be a positive integer.") from exc
+    if workers < 1:
+        raise RuntimeError(f"{source} must be a positive integer.")
+    return workers
+
+
+def _extract_workers_from_tokens(tokens: list[str]) -> Optional[int]:
+    for index, token in enumerate(tokens):
+        if token == "--workers" and index + 1 < len(tokens):
+            return _parse_workers_value(tokens[index + 1], "workers flag")
+        if token.startswith("--workers="):
+            return _parse_workers_value(token.split("=", 1)[1], "workers flag")
+    return None
+
+
+def _read_non_empty_env(name: str) -> Optional[str]:
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+    value = raw.strip()
+    if not value:
+        return None
+    return value
+
+
+def detect_configured_workers() -> tuple[int, str]:
+    argv_workers = _extract_workers_from_tokens(sys.argv)
+    if argv_workers is not None:
+        return argv_workers, "argv:--workers"
+
+    try:
+        parent_cmdline = subprocess.check_output(
+            ["ps", "-o", "command=", "-p", str(os.getppid())],
+            text=True,
+        ).strip()
+    except Exception:
+        parent_cmdline = ""
+
+    if parent_cmdline:
+        try:
+            parent_tokens = shlex.split(parent_cmdline)
+        except ValueError:
+            parent_tokens = []
+        parent_workers = _extract_workers_from_tokens(parent_tokens)
+        if parent_workers is not None:
+            return parent_workers, "parent_cmd:--workers"
+
+    workers_env = _read_non_empty_env("WORKERS")
+    if workers_env is not None:
+        return _parse_workers_value(workers_env, "WORKERS"), "env:WORKERS"
+
+    web_concurrency = _read_non_empty_env("WEB_CONCURRENCY")
+    if web_concurrency is not None:
+        return _parse_workers_value(web_concurrency, "WEB_CONCURRENCY"), "env:WEB_CONCURRENCY"
+
+    return 1, "default"
+
+
+CONFIGURED_WORKERS, CONFIGURED_WORKERS_SOURCE = detect_configured_workers()
+if CONFIGURED_WORKERS > 1:
+    raise RuntimeError(
+        f"Detected workers={CONFIGURED_WORKERS} ({CONFIGURED_WORKERS_SOURCE}), "
+        f"which is not supported with local semaphore limiting. "
+        f"Effective max concurrency would be {CONFIGURED_WORKERS} x {MAX_CONCURRENT_TASKS} = {CONFIGURED_WORKERS * MAX_CONCURRENT_TASKS}. "
+        "Please run with a single worker."
+    )
 BASE_DIR = Path(__file__).resolve().parent
 TEMP_ROOT = Path(os.getenv("TEMP_DIR", tempfile.gettempdir())) / "docxaio-hfs"
+PROCESS_LOCK_FILE = Path(os.getenv("PROCESS_LOCK_FILE", str(TEMP_ROOT / "process.lock")))
+process_lock_handle = None
+
+
+def enforce_single_process() -> None:
+    """通过文件锁确保仅有一个应用进程运行。"""
+    global process_lock_handle
+    PROCESS_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    lock_flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        lock_flags |= os.O_NOFOLLOW
+    try:
+        lock_fd = os.open(PROCESS_LOCK_FILE, lock_flags, 0o600)
+    except OSError as exc:
+        raise RuntimeError(f"Failed to open process lock file: {PROCESS_LOCK_FILE}") from exc
+    lock_handle = os.fdopen(lock_fd, "r+", encoding="utf-8")
+    try:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        lock_handle.close()
+        raise RuntimeError(
+            "Detected multiple app processes. "
+            "This service requires a single worker process to keep concurrency limits safe."
+        ) from exc
+    process_lock_handle = lock_handle
 
 processing_semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
+enforce_single_process()
 
 app = FastAPI(
     title=APP_TITLE,
@@ -87,6 +189,26 @@ async def get_upload_file_size(upload_file: UploadFile) -> int:
     return size
 
 
+@dataclass
+class ProcessRequest:
+    """docx_allinone 参数对象。"""
+
+    input_path: str = ""
+    word_table: bool = False
+    extract_excel: bool = False
+    image: bool = False
+    keep_attachment: bool = False
+    remove_watermark: bool = False
+    a3: bool = False
+    table_extract: bool = False
+    split_images: bool = False
+    split_remove_images: bool = False
+    split_output_dir: Optional[str] = None
+    split_no_optimize: bool = False
+    split_jpeg_quality: int = 85
+    workers: int = 1
+
+
 def build_args(
     *,
     word_table: bool,
@@ -100,9 +222,9 @@ def build_args(
     split_remove_images: bool,
     split_no_optimize: bool,
     split_jpeg_quality: int,
-) -> SimpleNamespace:
+) -> ProcessRequest:
     """构造 docx_allinone 处理参数对象。"""
-    args = SimpleNamespace(
+    args = ProcessRequest(
         input_path="",  # 占位字段，核心逻辑不依赖该值
         word_table=word_table,
         extract_excel=extract_excel,
@@ -136,7 +258,7 @@ def build_args(
     return args
 
 
-def run_processing(input_path: Path, args: SimpleNamespace) -> str:
+def run_processing(input_path: Path, args: ProcessRequest) -> str:
     """执行 docx_allinone 核心处理并返回日志。"""
     output_buffer = io.StringIO()
     with contextlib.redirect_stdout(output_buffer), contextlib.redirect_stderr(output_buffer):
@@ -186,6 +308,14 @@ async def health_check():
                 "max_file_size_mb": MAX_FILE_SIZE_MB,
                 "timeout_seconds": REQUEST_TIMEOUT_SECONDS,
                 "max_concurrent_tasks": MAX_CONCURRENT_TASKS,
+            },
+            "concurrency": {
+                "semaphore_limit": MAX_CONCURRENT_TASKS,
+                "configured_workers": CONFIGURED_WORKERS,
+                "configured_workers_source": CONFIGURED_WORKERS_SOURCE,
+                "effective_max": MAX_CONCURRENT_TASKS * CONFIGURED_WORKERS,
+                "warning": "using local semaphore, safe only with a single worker process",
+                "single_process_lock_file": str(PROCESS_LOCK_FILE),
             },
         }
     except Exception as exc:

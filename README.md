@@ -45,6 +45,12 @@ docker run --rm -p 8000:8000 docxaio-hfs
 - `MAX_FILE_SIZE_MB`：上传大小上限（默认 `120`）
 - `REQUEST_TIMEOUT_SECONDS`：单请求超时秒数（默认 `1200`）
 - `MAX_CONCURRENT_TASKS`：并发处理任务数（默认 `2`）
+- `WORKERS`：Uvicorn worker 数（**必须为 `1`**，默认 `1`，否则服务将启动失败以避免并发失控）
+- `PROCESS_LOCK_FILE`：单进程锁文件路径（默认 `${TEMP_DIR}/docxaio-hfs/process.lock`）
+
+> 并发说明：当前使用进程内 semaphore 限流，`/health` 的 `concurrency` 字段会返回 `semaphore_limit`、`configured_workers`、`configured_workers_source`、`effective_max`、`single_process_lock_file` 便于排查配置。  
+> 若手动启动 uvicorn，请显式使用 `--workers 1`（本项目仅支持单 worker + 本地 semaphore 组合）。
+> worker 检测优先级为：显式 `--workers`（当前进程/父进程） > `WORKERS` > `WEB_CONCURRENCY`；空值环境变量会按“未设置”处理。
 
 ## 输出说明
 
