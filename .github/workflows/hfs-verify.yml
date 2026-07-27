@@ -1,0 +1,47 @@
+name: Verify HFS source wrapper
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify-wrapper:
+    runs-on: ubuntu-latest
+    env:
+      DOCXAIO_SOURCE_COMMIT: ${{ github.sha }}
+      IMAGE_NAME: docxaio-hfs-space
+      CONTAINER_NAME: docxaio-hfs-space-verify
+      HOST_PORT: "18000"
+    steps:
+      - name: Checkout product source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run static checks
+        run: scripts/static-check.sh
+
+      - name: Export five-file Space bundle
+        run: cloud/hfs/export_space_bundle.sh "$RUNNER_TEMP/docxaio-hfs-space"
+
+      - name: Build exported Space wrapper
+        run: docker build --tag "$IMAGE_NAME" "$RUNNER_TEMP/docxaio-hfs-space"
+
+      - name: Start locally built container
+        run: docker run --detach --name "$CONTAINER_NAME" --publish "$HOST_PORT:8000" "$IMAGE_NAME"
+
+      - name: Run API smoke test
+        run: cloud/hfs/smoke-test.sh "http://127.0.0.1:$HOST_PORT"
+
+      - name: Print container logs on failure
+        if: failure()
+        run: docker logs "$CONTAINER_NAME" || true
+
+      - name: Remove local container
+        if: always()
+        run: docker rm --force "$CONTAINER_NAME" || true

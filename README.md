@@ -1,13 +1,3 @@
----
-title: DocxAIO-HFS
-emoji: 📄
-colorFrom: blue
-colorTo: green
-sdk: docker
-app_port: 8000
-pinned: false
----
-
 # DocxAIO-HFS
 
 基于 FastAPI + Docker 的 DOCX 处理服务，适用于 Hugging Face Spaces。
@@ -34,9 +24,30 @@ docker run --rm -p 8000:8000 docxaio-hfs
 
 ## Hugging Face Spaces 部署
 
-1. 新建 Space，选择 `Docker` SDK。
-2. 推送本目录文件到 Space 仓库。
-3. Space 自动构建镜像并启动服务。
+GitHub 产品仓是完整源代码和发布过程的事实源；Hugging Face Space 只接收由 `cloud/hfs/` 导出的五文件 flat wrapper，不保存 `main.py`、`docx_allinone.py`、模板或静态资源。Space 的 Docker 多阶段构建会从 GitHub 拉取并校验一个明确的完整 commit SHA。
+
+candidate 与 production 使用 `hfs-dev.candidate.toml`、`hfs-dev.toml` 两个固定 profile。
+Settings 从忽略的本地 `.env` 事实源执行 `diff → push → readback`，不在网页维护最终值：
+
+```bash
+python3 scripts/hf_space_sync.py diff --manifest hfs-dev.candidate.toml --env-file .env
+python3 scripts/hf_space_sync.py push --manifest hfs-dev.candidate.toml --env-file .env
+python3 scripts/hf_space_sync.py diff --manifest hfs-dev.candidate.toml --env-file .env
+```
+
+本项目没有 Secret；Variable 必须按值读回。清理授权前不得使用 `--prune --yes`。
+
+本地导出 wrapper：
+
+```bash
+cloud/hfs/export_space_bundle.sh /tmp/docxaio-hfs-space
+```
+
+导出目录严格只有 `README.md`、`Dockerfile`、`hfs-dev.toml`、`.dockerignore` 和 `BUILD_SOURCE.txt`。`BUILD_SOURCE.txt` 中的 SHA 会同时写入 Dockerfile 的 `DOCXAIO_SOURCE_COMMIT`，构建阶段 checkout 后断言 `HEAD` 完全一致。
+
+- 本地验证：`scripts/static-check.sh`
+- 容器 smoke：导出后 `docker build -t docxaio-hfs-space /tmp/docxaio-hfs-space`，启动容器并运行 `cloud/hfs/smoke-test.sh`
+- 发布：仅使用 `.github/workflows/sync-to-hf-space.yml` 的手动 `workflow_dispatch`，并明确输入 `confirm=yes`。该 workflow 只上传导出的 wrapper，随后以 CLI 下载 `Dockerfile` 和 `BUILD_SOURCE.txt` 逐字节读回核对。
 
 ## 环境变量
 

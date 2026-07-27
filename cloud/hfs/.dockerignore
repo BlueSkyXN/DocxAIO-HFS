@@ -1,0 +1,14 @@
+# The exported Space context is intentionally flat and limited to five files.
+.git
+.github
+.env
+.env.*
+!README.md
+__pycache__/
+*.py[cod]
+*.log
+local/
+tmp/
+temp/
+*.docx
+*.zip

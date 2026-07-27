@@ -1,30 +1,113 @@
-name: Sync to Hugging Face Space
+name: Publish HFS wrapper
 
 on:
-  push:
-    branches:
-      - main  # 或者你的主分支名称，例如 master
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Explicit HFS manifest profile.
+        required: true
+        type: choice
+        options:
+          - candidate
+          - production
+      confirm:
+        description: Type PUBLISH_WRAPPER to upload the exported five-file wrapper.
+        required: true
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
-  sync:
+  publish-wrapper:
+    if: inputs.confirm == 'PUBLISH_WRAPPER'
     runs-on: ubuntu-latest
+    env:
+      HFS_TARGET: ${{ inputs.target }}
+      HFS_MANIFEST: ${{ inputs.target == 'candidate' && 'hfs-dev.candidate.toml' || 'hfs-dev.toml' }}
+      DOCXAIO_SOURCE_COMMIT: ${{ github.sha }}
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4 # 建议使用最新版本
+      - name: Checkout product source
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 获取所有历史记录，以便正确推送
+          fetch-depth: 1
 
-      - name: Set up Git
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Load target from selected manifest
         run: |
-          git config --global user.email "action@github.com"
-          git config --global user.name "GitHub Action"
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
 
-      - name: Push to Hugging Face Space
+          manifest = tomllib.loads(Path(os.environ["HFS_MANIFEST"]).read_text(encoding="utf-8"))
+          space_id = manifest.get("space", "")
+          if not isinstance(space_id, str) or space_id.count("/") != 1:
+              raise SystemExit(f"invalid Space id in {os.environ['HFS_MANIFEST']}: {space_id!r}")
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env_file:
+              env_file.write(f"HF_SPACE_ID={space_id}\n")
+          PY
+
+      - name: Install Hugging Face CLI
+        run: python -m pip install --disable-pip-version-check "huggingface_hub>=1.5"
+
+      - name: Validate wrapper contract
+        run: scripts/static-check.sh
+
+      - name: Export flat Space wrapper
+        run: HFS_MANIFEST="$HFS_MANIFEST" cloud/hfs/export_space_bundle.sh "$RUNNER_TEMP/docxaio-hfs-space"
+
+      - name: Preflight private candidate and thin-wrapper boundary
+        run: |
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+
+          allowed = {".gitattributes", ".dockerignore", "BUILD_SOURCE.txt", "Dockerfile", "README.md", "hfs-dev.toml"}
+          api = HfApi(token=os.environ["HF_TOKEN"])
+          info = api.repo_info(repo_id=os.environ["HF_SPACE_ID"], repo_type="space")
+          if os.environ["HFS_TARGET"] == "candidate" and not info.private:
+              raise SystemExit("candidate Space must be private before wrapper upload")
+          unexpected = set(api.list_repo_files(repo_id=os.environ["HF_SPACE_ID"], repo_type="space")) - allowed
+          if unexpected:
+              raise SystemExit(f"target is not an empty or thin-wrapper Space: {sorted(unexpected)}")
+          PY
+
+      - name: Upload exported wrapper with Hugging Face CLI
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }} # 引用你之前创建的 Secret
+          BUNDLE_DIR: ${{ runner.temp }}/docxaio-hfs-space
         run: |
-          # 将 <your-hf-username> 和 <your-space-name> 替换为你的实际信息
-          git remote add space https://user:${HF_TOKEN}@huggingface.co/spaces/BlueSkyXN/DocxAIO-HFS
-          # 强制推送到 Space 的 main 分支，覆盖原有内容
-          # 如果你的 Space 主分支不是 main，请相应修改
-          git push --force space main
+          python -m huggingface_hub.cli.hf upload "$HF_SPACE_ID" "$BUNDLE_DIR" . \
+            --repo-type space \
+            --commit-message "Deploy wrapper for $DOCXAIO_SOURCE_COMMIT"
+
+      - name: Read back complete wrapper allowlist
+        env:
+          BUNDLE_DIR: ${{ runner.temp }}/docxaio-hfs-space
+          READBACK_DIR: ${{ runner.temp }}/docxaio-hfs-readback
+        run: |
+          mkdir -p "$READBACK_DIR"
+          for file in .dockerignore BUILD_SOURCE.txt Dockerfile README.md hfs-dev.toml; do
+            python -m huggingface_hub.cli.hf download "$HF_SPACE_ID" "$file" \
+              --repo-type space \
+              --local-dir "$READBACK_DIR"
+            cmp "$BUNDLE_DIR/$file" "$READBACK_DIR/$file"
+          done
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+
+          allowed = {".gitattributes", ".dockerignore", "BUILD_SOURCE.txt", "Dockerfile", "README.md", "hfs-dev.toml"}
+          remote = set(HfApi(token=os.environ["HF_TOKEN"]).list_repo_files(
+              repo_id=os.environ["HF_SPACE_ID"], repo_type="space"
+          ))
+          if remote - allowed:
+              raise SystemExit(f"Space readback contains extra product files: {sorted(remote - allowed)}")
+          if allowed - {".gitattributes"} - remote:
+              raise SystemExit(f"Space readback is missing wrapper files: {sorted(allowed - {'.gitattributes'} - remote)}")
+          PY
