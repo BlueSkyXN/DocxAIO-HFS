@@ -99,6 +99,8 @@ for key in sorted(set(production) | set(candidate)):
 PY
 
 require_grep '^ARG DOCXAIO_SOURCE_COMMIT=__DOCXAIO_SOURCE_COMMIT__$' "$root_dir/cloud/hfs/Dockerfile.template"
+require_grep 'DOCXAIO_SOURCE_COMMIT must equal the checked-out wrapper commit' "$root_dir/cloud/hfs/export_space_bundle.sh"
+require_grep 'Refusing to export uncommitted or untracked wrapper inputs' "$root_dir/cloud/hfs/export_space_bundle.sh"
 require_grep '^FROM python:3\.11-slim AS source$' "$root_dir/cloud/hfs/Dockerfile.template"
 require_grep 'ca-certificates' "$root_dir/cloud/hfs/Dockerfile.template"
 require_grep 'git clone https://github\.com/BlueSkyXN/DocxAIO-HFS\.git' "$root_dir/cloud/hfs/Dockerfile.template"

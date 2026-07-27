@@ -39,6 +39,27 @@ if [[ ! "$source_commit" =~ ^[0-9a-f]{40}$ ]]; then
     printf '%s\n' 'The resolved source commit must be a full 40-character lowercase SHA.' >&2
     exit 1
 fi
+if [ "$(git -C "$root_dir" rev-parse HEAD)" != "$source_commit" ]; then
+    printf '%s\n' 'DOCXAIO_SOURCE_COMMIT must equal the checked-out wrapper commit.' >&2
+    exit 1
+fi
+
+wrapper_inputs=(
+    cloud/hfs/README.md
+    cloud/hfs/.dockerignore
+    cloud/hfs/Dockerfile.template
+    cloud/hfs/export_space_bundle.sh
+    hfs-dev.toml
+    hfs-dev.candidate.toml
+)
+if [ -n "$(git -C "$root_dir" status --porcelain=v1 --untracked-files=all -- "${wrapper_inputs[@]}")" ]; then
+    printf '%s\n' 'Refusing to export uncommitted or untracked wrapper inputs.' >&2
+    exit 1
+fi
+if ! git -C "$root_dir" diff --quiet "$source_commit" -- "${wrapper_inputs[@]}"; then
+    printf '%s\n' 'Wrapper inputs do not match DOCXAIO_SOURCE_COMMIT.' >&2
+    exit 1
+fi
 
 for required in README.md .dockerignore Dockerfile.template; do
     if [ ! -f "$script_dir/$required" ]; then

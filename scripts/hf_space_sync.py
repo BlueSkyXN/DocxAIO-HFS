@@ -6,7 +6,8 @@
   push   从本地 env 文件推送已登记设置，并更新和读回种子
   pull   将实例配置回收到 local/hfs-sync-pulled/，绝不覆盖根种子
 
-依赖：Python 3.11+、huggingface_hub>=1.5（含本脚本调用的 HF CLI）。
+依赖：Python 3.11+、huggingface_hub>=1.5（含本脚本调用的 HF CLI）；
+仅处理 YAML seed 时需要 PyYAML>=6.0。
 脚本不会打印 secret 值；HF_TOKEN/GH_TOKEN 只作为本地控制凭据，不推 Space。
 """
 
@@ -26,7 +27,6 @@ import urllib.request
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-import yaml
 from huggingface_hub import HfApi
 from huggingface_hub.utils import build_hf_headers, validate_repo_id
 
@@ -476,6 +476,10 @@ def sensitive_seed_fields(
             raise SyncError(f"种子 JSON 解析失败：第 {exc.lineno} 行第 {exc.colno} 列") from None
         return deduplicated(literal_findings + structured_sensitive_fields(parsed, protected_values))
     if suffix in {".yaml", ".yml"}:
+        try:
+            import yaml
+        except ImportError as exc:
+            raise SyncError("YAML seed 解析需要安装 PyYAML>=6.0") from exc
         try:
             documents = list(yaml.safe_load_all(raw))
         except yaml.YAMLError as exc:
