@@ -1,4 +1,28 @@
 .DS_Store
-/local
-/__pycache__
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+config.toml
+local/
+
+# Python and application caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# Runtime and generated files
+tmp/
+temp/
+output/
+outputs/
+*.log
+*.zip
+
 CLAUDE.md

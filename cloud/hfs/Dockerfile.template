@@ -1,0 +1,55 @@
+# Rendered by export_space_bundle.sh. The placeholder must become a full 40-character commit SHA.
+ARG DOCXAIO_SOURCE_COMMIT=__DOCXAIO_SOURCE_COMMIT__
+
+FROM python:3.11-slim AS source
+ARG DOCXAIO_SOURCE_COMMIT
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+RUN test -n "${DOCXAIO_SOURCE_COMMIT}" \
+    && test "${#DOCXAIO_SOURCE_COMMIT}" -eq 40 \
+    && git clone https://github.com/BlueSkyXN/DocxAIO-HFS.git docxaio-hfs \
+    && cd docxaio-hfs \
+    && git fetch --depth=1 origin "${DOCXAIO_SOURCE_COMMIT}" \
+    && git checkout --detach "${DOCXAIO_SOURCE_COMMIT}" \
+    && test "$(git rev-parse HEAD)" = "${DOCXAIO_SOURCE_COMMIT}"
+
+FROM python:3.11-slim
+
+ENV PORT=8000 \
+    PYTHONUNBUFFERED=1 \
+    TEMP_DIR=/app/temp \
+    MAX_FILE_SIZE_MB=120 \
+    REQUEST_TIMEOUT_SECONDS=1200 \
+    MAX_CONCURRENT_TASKS=2 \
+    WORKERS=1 \
+    MPLCONFIGDIR=/app/.cache/matplotlib
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    fontconfig \
+    fonts-noto-cjk \
+    fonts-wqy-zenhei \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=source /src/docxaio-hfs/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY --from=source /src/docxaio-hfs/main.py ./
+COPY --from=source /src/docxaio-hfs/docx_allinone.py ./
+COPY --from=source /src/docxaio-hfs/entrypoint.sh ./
+COPY --from=source /src/docxaio-hfs/templates/ ./templates/
+COPY --from=source /src/docxaio-hfs/static/ ./static/
+
+RUN chmod +x /app/entrypoint.sh \
+    && mkdir -p /app/temp /app/.cache/matplotlib \
+    && chmod -R 777 /app/temp /app/.cache/matplotlib
+
+EXPOSE 8000
+
+ENTRYPOINT ["/app/entrypoint.sh"]

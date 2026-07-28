@@ -1,10 +1,26 @@
 .git
 .github
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+config.toml
+local/
+
+# Development caches and generated runtime files
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
 .DS_Store
 *.log
 tmp/
 temp/
+output/
+outputs/
+*.zip
