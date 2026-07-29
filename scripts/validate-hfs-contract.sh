@@ -146,11 +146,41 @@ require_grep 'python -m huggingface_hub\.cli\.hf --help' "$sync_workflow"
 require_grep 'python -m huggingface_hub\.cli\.hf upload --help' "$sync_workflow"
 require_grep 'python -m huggingface_hub\.cli\.hf download --help' "$sync_workflow"
 require_grep 'cmp "\$BUNDLE_DIR/\$file" "\$READBACK_DIR/\$file"' "$sync_workflow"
-require_grep 'candidate Space must be private' "$sync_workflow"
+require_grep 'FORMAL_SPACE: BlueSkyXN/DocxAIO-HFS' "$sync_workflow"
+require_grep 'target Space must be private before wrapper upload' "$sync_workflow"
 require_grep 'Space readback contains extra product files' "$sync_workflow"
 if grep -Eq 'git remote|git push|--force|--delete' "$sync_workflow"; then
     fail 'sync workflow must not use Git remotes, pushes, or force-pushes'
 fi
+
+python3 - "$sync_workflow" <<'PY' || failures=$((failures + 1))
+import sys
+from pathlib import Path
+
+workflow = Path(sys.argv[1]).read_text(encoding="utf-8")
+upload = 'python -m huggingface_hub.cli.hf upload "$HF_SPACE_ID"'
+upload_offset = workflow.index(upload)
+required_before_upload = (
+    'if os.environ["HFS_TARGET"] == "production" and space_id != os.environ["FORMAL_SPACE"]:',
+    'if info.private is not True:',
+    'target is not an empty or thin-wrapper Space',
+    'if [ "$HFS_TARGET" = production ]; then',
+    'test "$GITHUB_REF" = "refs/heads/main"',
+    'git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main',
+    'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"',
+    'test "$DOCXAIO_SOURCE_COMMIT" = "$GITHUB_SHA"',
+    'test "$(git rev-parse origin/main)" = "$GITHUB_SHA"',
+)
+for fragment in required_before_upload:
+    offset = workflow.index(fragment)
+    if offset >= upload_offset:
+        raise SystemExit(f"formal publish gate must run before the first HF upload: {fragment}")
+
+production_gate = workflow.index('if [ "$HFS_TARGET" = production ]; then')
+fetch_gate = workflow.index('git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main')
+if not production_gate < fetch_gate < upload_offset:
+    raise SystemExit("fresh origin/main fetch must be in the production-only gate immediately before upload")
+PY
 require_grep 'hf_space_sync\.py diff' "$root_dir/README.md"
 require_grep 'hf_space_sync\.py push' "$root_dir/README.md"
 require_grep 'pull_request:' "$verify_workflow"

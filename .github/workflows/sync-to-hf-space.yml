@@ -23,6 +23,7 @@ jobs:
     if: inputs.confirm == 'PUBLISH_WRAPPER'
     runs-on: ubuntu-latest
     env:
+      FORMAL_SPACE: BlueSkyXN/DocxAIO-HFS
       HFS_TARGET: ${{ inputs.target }}
       HFS_MANIFEST: ${{ inputs.target == 'candidate' && 'hfs-dev.candidate.toml' || 'hfs-dev.toml' }}
       DOCXAIO_SOURCE_COMMIT: ${{ github.sha }}
@@ -49,6 +50,8 @@ jobs:
           space_id = manifest.get("space", "")
           if not isinstance(space_id, str) or space_id.count("/") != 1:
               raise SystemExit(f"invalid Space id in {os.environ['HFS_MANIFEST']}: {space_id!r}")
+          if os.environ["HFS_TARGET"] == "production" and space_id != os.environ["FORMAL_SPACE"]:
+              raise SystemExit("production manifest must select the canonical DocxAIO-HFS Space")
           with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env_file:
               env_file.write(f"HF_SPACE_ID={space_id}\n")
           PY
@@ -67,7 +70,7 @@ jobs:
       - name: Export flat Space wrapper
         run: HFS_MANIFEST="$HFS_MANIFEST" cloud/hfs/export_space_bundle.sh "$RUNNER_TEMP/docxaio-hfs-space"
 
-      - name: Preflight private candidate and thin-wrapper boundary
+      - name: Preflight private target and thin-wrapper boundary
         run: |
           python - <<'PY'
           import os
@@ -76,8 +79,8 @@ jobs:
           allowed = {".gitattributes", ".dockerignore", "BUILD_SOURCE.txt", "Dockerfile", "README.md", "hfs-dev.toml"}
           api = HfApi(token=os.environ["HF_TOKEN"])
           info = api.repo_info(repo_id=os.environ["HF_SPACE_ID"], repo_type="space")
-          if os.environ["HFS_TARGET"] == "candidate" and not info.private:
-              raise SystemExit("candidate Space must be private before wrapper upload")
+          if info.private is not True:
+              raise SystemExit("target Space must be private before wrapper upload")
           unexpected = set(api.list_repo_files(repo_id=os.environ["HF_SPACE_ID"], repo_type="space")) - allowed
           if unexpected:
               raise SystemExit(f"target is not an empty or thin-wrapper Space: {sorted(unexpected)}")
@@ -87,6 +90,14 @@ jobs:
         env:
           BUNDLE_DIR: ${{ runner.temp }}/docxaio-hfs-space
         run: |
+          set -euo pipefail
+          if [ "$HFS_TARGET" = production ]; then
+            test "$GITHUB_REF" = "refs/heads/main"
+            git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+            test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+            test "$DOCXAIO_SOURCE_COMMIT" = "$GITHUB_SHA"
+            test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+          fi
           python -m huggingface_hub.cli.hf upload "$HF_SPACE_ID" "$BUNDLE_DIR" . \
             --repo-type space \
             --commit-message "Deploy wrapper for $DOCXAIO_SOURCE_COMMIT"
