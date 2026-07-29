@@ -26,7 +26,7 @@ docker run --rm -p 8000:8000 docxaio-hfs
 
 GitHub 产品仓是完整源代码和发布过程的事实源；Hugging Face Space 只接收由 `cloud/hfs/` 导出的五文件 flat wrapper，不保存 `main.py`、`docx_allinone.py`、模板或静态资源。Space 的 Docker 多阶段构建会从 GitHub 拉取并校验一个明确的完整 commit SHA。
 
-candidate 与 production 使用 `hfs-dev.candidate.toml`、`hfs-dev.toml` 两个固定 profile。
+candidate 与 production 使用 `hfs-dev.candidate.toml`、`hfs-dev.toml` 两个固定 profile，两个目标 Space 在上传前都必须已经是 private。production profile 的 target 必须显式等于 canonical `BlueSkyXN/DocxAIO-HFS`；production 发布还会在上传紧前重新 fetch `origin/main`，并要求 workflow ref 为 `refs/heads/main`，checkout `HEAD`、`GITHUB_SHA`、导出使用的 source commit 与最新 `origin/main` 完全相等。candidate 保留从手动触发所选 Git ref 发布的既有语义。
 Settings 从忽略的本地 `.env` 事实源执行 `diff → push → readback`，不在网页维护最终值：
 
 ```bash
@@ -47,7 +47,7 @@ cloud/hfs/export_space_bundle.sh /tmp/docxaio-hfs-space
 
 - 本地验证：`scripts/static-check.sh`
 - 容器 smoke：导出后 `docker build -t docxaio-hfs-space /tmp/docxaio-hfs-space`，启动容器并运行 `cloud/hfs/smoke-test.sh`
-- 发布：仅使用 `.github/workflows/sync-to-hf-space.yml` 的手动 `workflow_dispatch`，并明确输入 `confirm=yes`。该 workflow 只上传导出的 wrapper，随后以 CLI 下载 `Dockerfile` 和 `BUILD_SOURCE.txt` 逐字节读回核对。
+- 发布：仅使用 `.github/workflows/sync-to-hf-space.yml` 的手动 `workflow_dispatch`，并明确输入 `confirm=PUBLISH_WRAPPER`。canonical target、private visibility、thin-wrapper tree 和 production main provenance 等 gate 全部在首次 HF upload 前执行；该 workflow 只上传导出的 wrapper，随后以 CLI 下载全部五个文件逐字节读回核对。
 
 ## 环境变量
 
