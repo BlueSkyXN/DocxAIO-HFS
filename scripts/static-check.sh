@@ -23,4 +23,6 @@ for path in (root / "main.py", root / "docx_allinone.py", root / "scripts/hf_spa
     ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 PY
 
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s "$root_dir/scripts" -p 'test_*.py'
+
 exec "$root_dir/scripts/validate-hfs-contract.sh"
