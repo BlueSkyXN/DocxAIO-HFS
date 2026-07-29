@@ -6,7 +6,7 @@
   push   从本地 env 文件推送已登记设置，并更新和读回种子
   pull   将实例配置回收到 local/hfs-sync-pulled/，绝不覆盖根种子
 
-依赖：Python 3.11+、huggingface_hub==1.5.0、click==8.3.1
+依赖：Python 3.11+、huggingface_hub==1.5.0、click==8.3.3
 （后者是本脚本调用的 module HF CLI 的直接运行依赖）；
 仅处理 YAML seed 时需要 PyYAML>=6.0。
 脚本不会打印 secret 值；HF_TOKEN/GH_TOKEN 只作为本地控制凭据，不推 Space。
