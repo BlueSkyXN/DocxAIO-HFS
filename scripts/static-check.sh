@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
-for path in (root / "main.py", root / "docx_allinone.py"):
+for path in (root / "main.py", root / "docx_allinone.py", root / "scripts/hf_space_sync.py"):
     ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 PY
 

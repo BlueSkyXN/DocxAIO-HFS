@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HFS v2 示例同步脚本。
+"""HFS v2.1 示例同步脚本。
 
 命令：
   diff   比较本地登记、Space 设置、种子和实例配置；有差异返回 1
@@ -31,7 +31,7 @@ from huggingface_hub import HfApi
 from huggingface_hub.utils import build_hf_headers, validate_repo_id
 
 
-STANDARD = "2.0"
+STANDARD = "2.1"
 DEFAULT_DIST_BUCKET = "hfs-dist"
 DEFAULT_LOCAL_ONLY = {"HF_TOKEN", "GH_TOKEN"}
 SOVEREIGNTIES = {"sovereign", "fork", "port"}
@@ -219,6 +219,15 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
     version_source = manifest.get("version_source")
     if not isinstance(version_source, str) or version_source not in VERSION_SOURCES:
         raise SyncError("version_source 必须是 latest、tag 或 commit")
+    if manifest.get("project_class") != "preview":
+        raise SyncError('project_class 必须为 "preview"')
+    if manifest.get("target_role") not in {"primary", "candidate", "rotation", "restore"}:
+        raise SyncError("target_role 必须是 primary、candidate、rotation 或 restore")
+    validate_object_path(manifest.get("env_file"), "env_file")
+    if "secret_files" not in manifest:
+        raise SyncError("secret_files 必须显式登记")
+    for item in string_list(manifest, "secret_files"):
+        validate_object_path(item, "secret_files")
 
     if "bucket_namespace" in manifest:
         validate_slug(manifest["bucket_namespace"], "bucket_namespace")
@@ -246,6 +255,15 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
             raise SyncError("seed_file 的文件名必须登记在 other_objects")
     for item in other_objects:
         validate_object_path(item, "other_objects")
+
+
+def manifest_env_file(manifest: dict[str, Any], requested: Path | None) -> Path:
+    declared = Path(validate_object_path(manifest.get("env_file"), "env_file"))
+    if requested is not None and requested != declared:
+        raise SyncError(
+            f"--env-file 必须与 manifest 声明一致：期望 {declared}，实际 {requested}"
+        )
+    return declared
 
 
 def local_only_names(manifest: dict[str, Any]) -> set[str]:
@@ -537,13 +555,14 @@ def report(title: str, items: list[str]) -> int:
 def preflight(
     root: Path,
     manifest_file: Path = Path("hfs-dev.toml"),
-    env_file: Path = Path(".env"),
+    env_file: Path | None = None,
     *,
     for_push: bool = False,
 ) -> tuple[dict[str, Any], dict[str, str], str, set[str], set[str], Path | None]:
     root = root.resolve()
     manifest = load_manifest(root, manifest_file)
     validate_manifest(manifest)
+    env_file = manifest_env_file(manifest, env_file)
     env_values = load_env(root, env_file)
     token = hf_token(env_values)
     secrets, variables = registered_names(manifest)
@@ -586,7 +605,7 @@ def resolve_targets(api: HfApi, manifest: dict[str, Any], token: str) -> tuple[s
 def cmd_diff(
     root: Path,
     manifest_file: Path = Path("hfs-dev.toml"),
-    env_file: Path = Path(".env"),
+    env_file: Path | None = None,
 ) -> int:
     root = root.resolve()
     manifest, env_values, token, secrets, variables, local_seed = preflight(
@@ -685,7 +704,7 @@ def cmd_push(
     prune: bool,
     yes: bool,
     manifest_file: Path = Path("hfs-dev.toml"),
-    env_file: Path = Path(".env"),
+    env_file: Path | None = None,
 ) -> int:
     root = root.resolve()
     if prune and not yes:
@@ -765,11 +784,12 @@ def unique_pull_dir(root: Path, space: str) -> Path:
 def cmd_pull(
     root: Path,
     manifest_file: Path = Path("hfs-dev.toml"),
-    env_file: Path = Path(".env"),
+    env_file: Path | None = None,
 ) -> int:
     root = root.resolve()
     manifest = load_manifest(root, manifest_file)
     validate_manifest(manifest)
+    env_file = manifest_env_file(manifest, env_file)
     env_values = load_env(root, env_file)
     token = hf_token(env_values)
     api = api_client(token)
@@ -811,7 +831,12 @@ def main() -> int:
     parser.add_argument("command", choices=["diff", "push", "pull"])
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="项目根目录（默认当前目录）")
     parser.add_argument("--manifest", type=Path, default=Path("hfs-dev.toml"), help="manifest 路径")
-    parser.add_argument("--env-file", type=Path, default=Path(".env"), help="本地 env 文件路径")
+    parser.add_argument(
+        "--env-file",
+        type=Path,
+        default=None,
+        help="兼容参数；如提供，必须与 manifest 的 env_file 完全一致",
+    )
     parser.add_argument("--prune", action="store_true", help="push 时删除远端多余设置；默认不删除")
     parser.add_argument("--yes", action="store_true", help="确认执行 --prune 的远端删除")
     args = parser.parse_args()

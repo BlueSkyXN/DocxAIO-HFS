@@ -26,13 +26,26 @@ docker run --rm -p 8000:8000 docxaio-hfs
 
 GitHub 产品仓是完整源代码和发布过程的事实源；Hugging Face Space 只接收由 `cloud/hfs/` 导出的五文件 flat wrapper，不保存 `main.py`、`docx_allinone.py`、模板或静态资源。Space 的 Docker 多阶段构建会从 GitHub 拉取并校验一个明确的完整 commit SHA。
 
-candidate 与 production 使用 `hfs-dev.candidate.toml`、`hfs-dev.toml` 两个固定 profile。
-Settings 从忽略的本地 `.env` 事实源执行 `diff → push → readback`，不在网页维护最终值：
+本项目按 HFS v2.1 分类为 Preview。`hfs-dev.toml` 是 canonical primary profile，允许日常
+Preview 变更直接更新当前 Space；`hfs-dev.candidate.toml` 仅用于高风险变更的可选隔离验证，
+不是常规前置门禁。workflow 中保留的 `production` target 名称仅是兼容输入，实际选择的是
+canonical preview profile。
+
+Settings 必须从 manifest 声明的、Git ignored 的本地明文事实源执行
+`diff → push → readback`，不能只在 Space 网页维护。canonical 使用 `.env`：
 
 ```bash
-python3 scripts/hf_space_sync.py diff --manifest hfs-dev.candidate.toml --env-file .env
-python3 scripts/hf_space_sync.py push --manifest hfs-dev.candidate.toml --env-file .env
-python3 scripts/hf_space_sync.py diff --manifest hfs-dev.candidate.toml --env-file .env
+python3 scripts/hf_space_sync.py diff --manifest hfs-dev.toml
+python3 scripts/hf_space_sync.py push --manifest hfs-dev.toml
+python3 scripts/hf_space_sync.py diff --manifest hfs-dev.toml
+```
+
+如确需 candidate，使用其独立的 `local/hfs-targets/candidate.env`，脚本会从 manifest 读取：
+
+```bash
+python3 scripts/hf_space_sync.py diff --manifest hfs-dev.candidate.toml
+python3 scripts/hf_space_sync.py push --manifest hfs-dev.candidate.toml
+python3 scripts/hf_space_sync.py diff --manifest hfs-dev.candidate.toml
 ```
 
 本项目没有 Secret；Variable 必须按值读回。清理授权前不得使用 `--prune --yes`。

@@ -1,9 +1,13 @@
-standard       = "2.0"
+standard       = "2.1"
 project        = "docxaio-hfs"
 space          = "BlueSkyXN/DocxAIO-HFS"
+project_class  = "preview"
+target_role    = "primary"
 sovereignty    = "sovereign"
 lane           = "source"
 version_source = "commit"
+env_file       = ".env"
+secret_files   = []
 
 # These credentials are local control-plane values only; they are never Space settings.
 local_only = ["HF_TOKEN", "GH_TOKEN"]
