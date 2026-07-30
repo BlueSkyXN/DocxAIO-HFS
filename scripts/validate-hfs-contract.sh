@@ -35,6 +35,8 @@ for file in \
     require_file "$file"
 done
 require_file "$root_dir/scripts/hf_space_sync.py"
+require_grep '^STANDARD = "2\.1"$' "$root_dir/scripts/hf_space_sync.py"
+require_grep 'def manifest_env_file' "$root_dir/scripts/hf_space_sync.py"
 
 python3 - "$root_dir/hfs-dev.toml" "$root_dir/.env.example" <<'PY' || failures=$((failures + 1))
 import re
@@ -46,12 +48,17 @@ manifest_path = Path(sys.argv[1])
 env_example_path = Path(sys.argv[2])
 manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
 expected = {
-    "standard": "2.0",
+    "standard": "2.1",
     "project": "docxaio-hfs",
     "space": "BlueSkyXN/DocxAIO-HFS",
+    "project_class": "preview",
+    "target_role": "primary",
+    "space_visibility": "protected",
+    "bucket_visibility": "private",
     "sovereignty": "sovereign",
     "lane": "source",
     "version_source": "commit",
+    "env_file": ".env",
 }
 for key, value in expected.items():
     if manifest.get(key) != value:
@@ -60,6 +67,8 @@ if manifest.get("local_only") != ["HF_TOKEN", "GH_TOKEN"]:
     raise SystemExit("hfs-dev.toml local_only must contain only HF_TOKEN and GH_TOKEN")
 if manifest.get("secrets") != []:
     raise SystemExit("hfs-dev.toml secrets must be an empty list")
+if manifest.get("secret_files") != []:
+    raise SystemExit("hfs-dev.toml secret_files must be an empty list")
 variables = {
     "PORT", "TEMP_DIR", "MAX_FILE_SIZE_MB", "REQUEST_TIMEOUT_SECONDS",
     "MAX_CONCURRENT_TASKS", "WORKERS", "PROCESS_LOCK_FILE",
@@ -89,13 +98,22 @@ import sys
 import tomllib
 from pathlib import Path
 
-production = tomllib.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+primary = tomllib.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 candidate = tomllib.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
-if candidate.get("space") != "BlueSkyXN/DocxAIO-HFS-v2-candidate":
-    raise SystemExit("candidate manifest has the wrong fixed Space id")
-for key in sorted(set(production) | set(candidate)):
-    if key != "space" and production.get(key) != candidate.get(key):
-        raise SystemExit(f"candidate manifest differs from production at {key}")
+expected_candidate = {
+    "space": "BlueSkyXN/DocxAIO-HFS-v2-candidate",
+    "project_class": "preview",
+    "target_role": "candidate",
+    "space_visibility": "protected",
+    "bucket_visibility": "private",
+    "env_file": "local/hfs-targets/candidate.env",
+}
+for key, value in expected_candidate.items():
+    if candidate.get(key) != value:
+        raise SystemExit(f"candidate manifest {key} must be {value!r}")
+for key in sorted(set(primary) | set(candidate)):
+    if key not in {"space", "target_role", "env_file"} and primary.get(key) != candidate.get(key):
+        raise SystemExit(f"candidate manifest differs from primary at {key}")
 PY
 
 require_grep '^ARG DOCXAIO_SOURCE_COMMIT=__DOCXAIO_SOURCE_COMMIT__$' "$root_dir/cloud/hfs/Dockerfile.template"
@@ -139,8 +157,9 @@ require_grep "if: inputs\.confirm == 'PUBLISH_WRAPPER'" "$sync_workflow"
 require_grep 'DOCXAIO_SOURCE_COMMIT: \$\{\{ github\.sha \}\}' "$sync_workflow"
 require_grep 'huggingface_hub\.cli\.hf upload' "$sync_workflow"
 require_grep 'huggingface_hub\.cli\.hf download' "$sync_workflow"
-require_grep 'huggingface_hub==1\.5\.0' "$sync_workflow"
-require_grep 'click==8\.3\.3' "$sync_workflow"
+require_grep 'huggingface_hub==1\.25\.1' "$sync_workflow"
+require_grep 'click==8\.4\.2' "$sync_workflow"
+require_grep 'repos settings --help \| grep -- --protected' "$sync_workflow"
 require_grep 'python -m huggingface_hub\.cli\.hf version' "$sync_workflow"
 require_grep 'python -m huggingface_hub\.cli\.hf --help' "$sync_workflow"
 require_grep 'python -m huggingface_hub\.cli\.hf upload --help' "$sync_workflow"

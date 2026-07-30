@@ -19,8 +19,10 @@ import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
-for path in (root / "main.py", root / "docx_allinone.py"):
+for path in (root / "main.py", root / "docx_allinone.py", root / "scripts/hf_space_sync.py"):
     ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 PY
+
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s "$root_dir/scripts" -p 'test_*.py'
 
 exec "$root_dir/scripts/validate-hfs-contract.sh"
