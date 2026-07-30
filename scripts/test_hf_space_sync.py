@@ -65,6 +65,8 @@ def write_fixture(
         'space = "example/sync-security-test"',
         'project_class = "preview"',
         'target_role = "primary"',
+        'space_visibility = "protected"',
+        'bucket_visibility = "private"',
         'sovereignty = "sovereign"',
         'lane = "source"',
         'version_source = "commit"',

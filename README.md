@@ -31,8 +31,9 @@ Preview 变更直接更新当前 Space；`hfs-dev.candidate.toml` 仅用于高�
 不是常规前置门禁。workflow 中保留的 `production` target 名称仅是兼容输入，实际选择的是
 canonical preview profile。
 
-Settings 必须从 manifest 声明的、Git ignored 的本地明文事实源执行
-`diff → push → readback`，不能只在 Space 网页维护。canonical 使用 `.env`：
+candidate 与 production 使用 `hfs-dev.candidate.toml`、`hfs-dev.toml` 两个固定 profile。production profile 的 target 必须显式等于 canonical `BlueSkyXN/DocxAIO-HFS`；production 发布还会在上传紧前重新 fetch `origin/main`，并要求 workflow ref 为 `refs/heads/main`，checkout `HEAD`、`GITHUB_SHA`、导出使用的 source commit 与最新 `origin/main` 完全相等。candidate 保留从手动触发所选 Git ref 发布的既有语义。
+
+Settings 必须从 manifest 声明的、Git ignored 的本地明文事实源执行 `diff → push → readback`，不能只在 Space 网页维护最终值。canonical 使用 `.env`：
 
 ```bash
 python3 scripts/hf_space_sync.py diff --manifest hfs-dev.toml
@@ -60,7 +61,7 @@ cloud/hfs/export_space_bundle.sh /tmp/docxaio-hfs-space
 
 - 本地验证：`scripts/static-check.sh`
 - 容器 smoke：导出后 `docker build -t docxaio-hfs-space /tmp/docxaio-hfs-space`，启动容器并运行 `cloud/hfs/smoke-test.sh`
-- 发布：仅使用 `.github/workflows/sync-to-hf-space.yml` 的手动 `workflow_dispatch`，并明确输入 `confirm=yes`。该 workflow 只上传导出的 wrapper，随后以 CLI 下载 `Dockerfile` 和 `BUILD_SOURCE.txt` 逐字节读回核对。
+- 发布：仅使用 `.github/workflows/sync-to-hf-space.yml` 的手动 `workflow_dispatch`，并明确输入 `confirm=PUBLISH_WRAPPER`。canonical target、private visibility、thin-wrapper tree 和 production main provenance 等 gate 全部在首次 HF upload 前执行；该 workflow 只上传导出的 wrapper，随后以 CLI 下载全部五个文件逐字节读回核对。
 
 ## 环境变量
 
