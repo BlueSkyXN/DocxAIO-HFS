@@ -29,7 +29,7 @@ GitHub 产品仓是完整源代码和发布过程的事实源；Hugging Face Spa
 本项目按 HFS v2.1 分类为 Preview。`hfs-dev.toml` 是 canonical primary profile，允许日常
 Preview 变更直接更新当前 Space；`hfs-dev.candidate.toml` 仅用于高风险变更的可选隔离验证，
 不是常规前置门禁。workflow 中保留的 `production` target 名称仅是兼容输入，实际选择的是
-canonical preview profile。
+canonical preview profile。两个 manifest 都声明 Space 为 Protected、登记的 Bucket 为 Private。
 
 candidate 与 production 使用 `hfs-dev.candidate.toml`、`hfs-dev.toml` 两个固定 profile。production profile 的 target 必须显式等于 canonical `BlueSkyXN/DocxAIO-HFS`；production 发布还会在上传紧前重新 fetch `origin/main`，并要求 workflow ref 为 `refs/heads/main`，checkout `HEAD`、`GITHUB_SHA`、导出使用的 source commit 与最新 `origin/main` 完全相等。candidate 保留从手动触发所选 Git ref 发布的既有语义。
 

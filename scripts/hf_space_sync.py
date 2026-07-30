@@ -1402,6 +1402,7 @@ def cmd_pull(
                 cleanup_error = cleanup_error or exc
         if cleanup_error is not None and not primary_exception_active:
             raise SyncError("pull staging 清理失败") from cleanup_error
+
     relative = downloaded.relative_to(root)
     print(f"实例配置已回收：{relative}（来源 {runtime_uri}）")
     if sensitive:
